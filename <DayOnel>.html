@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Battle of Gettysburg Simulation - Slowed</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body { margin: 0; padding: 0; font-family: Georgia, serif; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    #timeline, .legend, #control-buttons {
+      position: absolute;
+      background: rgba(250, 240, 230, 0.9);
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 2px 2px 8px rgba(0,0,0,0.4);
+      z-index: 1000;
+    }
+    #timeline { top: 150px; right: 20px; width: 300px; max-height: 70%; overflow-y: auto; font-size: 14px; }
+    .legend { bottom: 20px; left: 20px; font-size: 14px; }
+    #control-buttons { top: 20px; right: 20px; font-size: 18px; }
+    button {
+      padding: 8px 16px;
+      font-size: 16px;
+      margin: 5px 0;
+      border: none;
+      border-radius: 6px;
+      background-color: #4682B4;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover { background-color: #315f7c; }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="timeline"><strong>Timeline of Gettysburg:</strong><ul id="events"></ul></div>
+<div id="control-buttons">
+  <button id="startPauseBtn">Start</button>
+</div>
+<div class="legend">
+  <h4>Map Key</h4>
+  <div><span style="background: blue; width: 15px; height: 15px; display:inline-block; margin-right:5px;"></span> Union Forces</div>
+  <div><span style="background: red; width: 15px; height: 15px; display:inline-block; margin-right:5px;"></span> Confederate Forces</div>
+  <div><span style="background: black; width: 15px; height: 15px; display:inline-block; margin-right:5px;"></span> Battle Sites</div>
+</div>
+
+<audio id="background-music" autoplay loop>
+  <source src="https://cdn.pixabay.com/download/audio/2023/03/15/audio_9827d4d3c5.mp3" type="audio/mpeg">
+</audio>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+// Initialize the map
+const map = L.map('map').setView([39.83, -77.23], 13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+// Lower music volume
+const music = document.getElementById('background-music');
+music.volume = 0.3;
+
+// Custom icons
+const unionIcon = L.divIcon({ html: '<div style="background:blue;width:18px;height:18px;border-radius:50%;"></div>', className: '' });
+const confederateIcon = L.divIcon({ html: '<div style="background:red;width:18px;height:18px;border-radius:50%;"></div>', className: '' });
+
+// Locations of battle sites
+const battleSites = {
+  McPherson_Ridge: [39.8425, -77.2400],
+  Seminary_Ridge: [39.8370, -77.2315],
+  Cemetery_Hill: [39.8260, -77.2180],
+  Little_Round_Top: [39.7910, -77.2420],
+  Devils_Den: [39.7955, -77.2505],
+  Peach_Orchard: [39.8000, -77.2500],
+  Wheatfield: [39.7950, -77.2450],
+  Culp_Hill: [39.8205, -77.2315],
+  High_Water_Mark: [39.8160, -77.2360],
+  Taneytown_Road: [39.8295, -77.2380],
+  Picketts_Charge: [39.8175, -77.2410]
+};
+
+Object.entries(battleSites).forEach(([name, coords]) => {
+  L.marker(coords, {
+    icon: L.divIcon({ html: `<div style='background:black;width:16px;height:16px;border-radius:50%;border:2px solid white;' title='${name.replace(/_/g, ' ')}'></div>`, className: '' })
+  }).addTo(map).bindPopup(name.replace(/_/g, ' '));
+});
+
+// Union soldiers
+const unionSoldiers = [
+  L.marker([39.8300, -77.2300], { icon: unionIcon }).addTo(map),
+  L.marker([39.8325, -77.2260], { icon: unionIcon }).addTo(map),
+  L.marker([39.8340, -77.2295], { icon: unionIcon }).addTo(map),
+  L.marker([39.8355, -77.2285], { icon: unionIcon }).addTo(map)
+];
+
+const unionReinforcements = [
+  L.marker([39.8180, -77.2395], { icon: unionIcon }).addTo(map),
+  L.marker([39.8210, -77.2400], { icon: unionIcon }).addTo(map),
+  L.marker([39.8240, -77.2370], { icon: unionIcon }).addTo(map),
+  L.marker([39.8275, -77.2345], { icon: unionIcon }).addTo(map)
+];
+
+// Confederate soldiers
+const confederateSoldiers = [
+  L.marker([39.8700, -77.2800], { icon: confederateIcon }).addTo(map),
+  L.marker([39.8650, -77.2700], { icon: confederateIcon }).addTo(map),
+  L.marker([39.8600, -77.2600], { icon: confederateIcon }).addTo(map),
+  L.marker([39.8550, -77.2550], { icon: confederateIcon }).addTo(map),
+  L.marker([39.8450, -77.2500], { icon: confederateIcon }).addTo(map),
+  L.marker([39.8500, -77.2350], { icon: confederateIcon }).addTo(map)
+];
+
+// Timeline system
+let clockTime = 360;
+const eventsList = document.getElementById('events');
+
+function formatTime(mins) {
+  const hours = Math.floor(mins / 60);
+  const minutes = mins % 60;
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const displayHour = hours % 12 === 0 ? 12 : hours % 12;
+  return `${displayHour}:${minutes.toString().padStart(2,'0')} ${ampm}`;
+}
+
+function addTimeline(time, text) {
+  const li = document.createElement('li');
+  li.textContent = `[${formatTime(time)}] ${text}`;
+  eventsList.appendChild(li);
+}
+
+const movements = [
+  { time: 420, union: battleSites.McPherson_Ridge, confederate: battleSites.McPherson_Ridge, event: 'McPherson Ridge - First Shots (Day 1)' },
+  { time: 540, union: battleSites.Seminary_Ridge, confederate: battleSites.Seminary_Ridge, event: 'Seminary Ridge - Union Defends (Day 1)' },
+  { time: 660, union: battleSites.Cemetery_Hill, confederate: battleSites.Cemetery_Hill, event: 'Cemetery Hill - Night Defense (Day 1)' },
+  { time: 780, union: battleSites.Little_Round_Top, confederate: battleSites.Devils_Den, event: 'Little Round Top - Union Holds (Day 2)' },
+  { time: 840, union: battleSites.Peach_Orchard, confederate: battleSites.Wheatfield, event: 'Peach Orchard & Wheatfield Battle (Day 2)' },
+  { time: 960, union: battleSites.Culp_Hill, confederate: battleSites.Culp_Hill, event: "Culp's Hill Skirmishes (Day 3)" },
+  { time: 1020, union: battleSites.High_Water_Mark, confederate: battleSites.High_Water_Mark, event: "Pickett's Charge (Day 3)" },
+  { time: 1140, retreat: true, event: 'Confederate Retreat (Day 3)' }
+];
+
+let moveIndex = 0;
+let unionTargets = [], confederateTargets = [];
+let unionProgress = 0.0018, confederateProgress = 0.0018;
+let simulationRunning = false;
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function simulateStep() {
+  clockTime++;
+
+  if (moveIndex < movements.length && clockTime >= movements[moveIndex].time) {
+    const move = movements[moveIndex];
+    if (move.union) {
+      unionTargets.push(move.union);
+      unionProgress = 0;
+    }
+    if (move.confederate) {
+      confederateTargets.push(move.confederate);
+      confederateProgress = 0;
+    }
+    if (move.retreat) {
+      confederateSoldiers.forEach(soldier => {
+        soldier.setLatLng([39.85, -77.27]);
+      });
+      confederateTargets = [];
+    }
+    addTimeline(clockTime, move.event);
+    moveIndex++;
+  }
+
+  unionSoldiers.forEach((soldier, index) => {
+    if (unionTargets[index] && unionProgress <= 1) {
+      const start = soldier.getLatLng();
+      soldier.setLatLng([lerp(start.lat, unionTargets[index][0], unionProgress), lerp(start.lng, unionTargets[index][1], unionProgress)]);
+    }
+  });
+
+  confederateSoldiers.forEach((soldier, index) => {
+    if (confederateTargets[index] && confederateProgress <= 1) {
+      const start = soldier.getLatLng();
+      soldier.setLatLng([lerp(start.lat, confederateTargets[index][0], confederateProgress), lerp(start.lng, confederateTargets[index][1], confederateProgress)]);
+    }
+  });
+
+  unionProgress += 0.0018;
+  confederateProgress += 0.0018;
+
+  if (simulationRunning) {
+    requestAnimationFrame(simulateStep);
+  }
+}
+
+// Control button
+const startPauseBtn = document.getElementById('startPauseBtn');
+startPauseBtn.onclick = function () {
+  simulationRunning = !simulationRunning;
+  startPauseBtn.textContent = simulationRunning ? 'Pause' : 'Start';
+  if (simulationRunning) simulateStep();
+};
+</script>
+
+</body>
+</html>
+
